@@ -1096,6 +1096,20 @@ float orbital_noise(float3 p) {
     return lerp(lerp(lerp(a.x,a.y,f.x),lerp(a.z,a.w,f.x),f.y),
         lerp(lerp(b.x,b.y,f.x),lerp(b.z,b.w,f.x),f.y),f.z);
 }
+// orbital_noise wrapped every `period` cells along Z (a seamless flow).
+float orbital_hash_tiled(int3 cell,int period) {
+    cell.z=((cell.z%period)+period)%period;
+    return orbital_hash(cell);
+}
+float orbital_noise_tiled(float3 p,int period) {
+    int3 cell=int3(floor(p));float3 f=frac(p);f=f*f*(3-2*f);
+    float4 a=float4(orbital_hash_tiled(cell,period),orbital_hash_tiled(cell+int3(1,0,0),period),
+        orbital_hash_tiled(cell+int3(0,1,0),period),orbital_hash_tiled(cell+int3(1,1,0),period));
+    float4 b=float4(orbital_hash_tiled(cell+int3(0,0,1),period),orbital_hash_tiled(cell+int3(1,0,1),period),
+        orbital_hash_tiled(cell+int3(0,1,1),period),orbital_hash_tiled(cell+int3(1,1,1),period));
+    return lerp(lerp(lerp(a.x,a.y,f.x),lerp(a.z,a.w,f.x),f.y),
+        lerp(lerp(b.x,b.y,f.x),lerp(b.z,b.w,f.x),f.y),f.z);
+}
 float4 tile_background(Fragment input) {
     uint flags=texels[input.texture.x+15];
     // Overscanned layers (BackgroundTileOptions::overscan): above the 224
@@ -1155,6 +1169,22 @@ float4 tile_background(Fragment input) {
         orbital_noise(direction*3+37))*.8;
     float clouds=orbital_noise(p)*.5+orbital_noise(p*2.13+7.3)*.25
         +orbital_noise(p*4.37-4.1)*.15+orbital_noise(p*8.71+19.7)*.1;
+    // Below the limb the same field lies on a ground plane and streams
+    // towards the eye (camera.effects.z bits 18-31, ModernFrame): fast
+    // beneath, slowing to nothing at the horizon, like a Mode 7 floor.
+    // Periodic along the flow (32 cells, each octave a whole multiple), so
+    // the phase wraps without a jump. The static sphere field keeps the limb,
+    // where a plane's texture would shimmer.
+    float flow=float(camera.effects.z>>18)/16384.;
+    float plane=smoothstep(.04,.22,-direction.y);
+    if(plane>0) {
+        float2 ground=direction.xz/max(-direction.y,.02)*3.;
+        float3 q=float3(ground.x,0,ground.y-flow*32.); // ahead is -Z: features come towards the eye
+        q+=float3(orbital_noise_tiled(q*.25+11,8),0,orbital_noise_tiled(q*.25+37,8))*.8;
+        float flowing=orbital_noise_tiled(q,32)*.5+orbital_noise_tiled(q*2+7.3,64)*.25
+            +orbital_noise_tiled(q*4-4.1,128)*.15+orbital_noise_tiled(q*8+19.7,256)*.1;
+        clouds=lerp(clouds,flowing,plane);
+    }
     // Palette steps retain the source's crisp colour boundaries. The former
     // low-frequency continuous gradient looked like a blurred enlargement.
     float band_coordinate=saturate((clouds-.25)*2)*7;

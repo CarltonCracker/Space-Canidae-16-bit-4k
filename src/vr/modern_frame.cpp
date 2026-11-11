@@ -419,7 +419,7 @@ void ModernFrame::prepare(const GameSceneSnapshot& previous,const GameSceneSnaps
                 if(votes>=horizon_votes_[int(std::lround(*level_horizon_*4.F))]) level_horizon_=float(key)/4.F;
             }
             background_inputs.landscape_horizon=level_horizon_;
-            // Venom haze colour from this background's own sky art: half
+            // Venom's and Macbeth's haze colour from this background's own sky art: half
             // its mean, half its brightest third (the glowing clouds). Once
             // per background, retried until the level has loaded the art.
             if(fog_background_!=scene.background_id) {
@@ -427,7 +427,7 @@ void ModernFrame::prepare(const GameSceneSnapshot& previous,const GameSceneSnaps
                 bool venom=false;
                 if(inputs.symbols) {
                     const auto& lists=inputs.symbols->find("BGLISTS");
-                    for(const char* name:{"BG_1_6A","BG_3_7A"})
+                    for(const char* name:{"BG_1_6A","BG_3_7A","BG_3_5"}) // Venom 1 and 3, Macbeth
                         for(const auto value:inputs.symbols->find(name))
                             if(!lists.empty() && value>lists.front() && (value&0xff0000U)==(lists.front()&0xff0000U)
                                 && uint16_t(value-lists.front())==scene.background_id) venom=true;
@@ -604,6 +604,18 @@ void ModernFrame::prepare(const GameSceneSnapshot& previous,const GameSceneSnaps
             const double offset=sky_columns_<0?sky_columns_+4096.:sky_columns_;
             sky_turn=(uint32_t(std::lround(offset*16.))&0xffffU)|0x20000U;
         } else sky_yaw_.reset();
+        // The orbital surface's flow (scene.hlsl tile_background): one
+        // period every 480 source ticks (24 s), interpolated between them;
+        // still while the game holds its frame. STARFOX_MODERN_ORBITAL_FLOW=0
+        // keeps the field still.
+        static const bool flow_enabled=[] {
+            const char* value=std::getenv("STARFOX_MODERN_ORBITAL_FLOW");return !(value && std::string_view(value)=="0");
+        }();
+        if(flow_enabled && current.background_orbital_planet && gameplay_flow(current)) {
+            const double ticks=double(current.revision%480U)+std::clamp(alpha,0.,1.);
+            const uint32_t phase=uint32_t(std::lround(ticks/480.*16384.))&0x3fffU;
+            landscape_heading|=phase<<18;sky_turn|=phase<<18;
+        }
     }
     // Space backgrounds: the real camera roll as geometry around the view
     // axis (the vanishing point), like the planet landscape, instead of

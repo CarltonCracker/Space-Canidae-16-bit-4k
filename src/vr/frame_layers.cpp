@@ -171,9 +171,11 @@ FrameLayers assemble_frame_layers(const GameSceneSnapshot& scene,const FrameLaye
         else bg2.model=packet.model;
         if(corridor) bg2=std::move(*corridor);
         // Space Armada's boss room as a room around the reactor: its ceiling
-        // and floor (drawn first) and the drum wall over their edges.
+        // and floor (drawn first) and the drum wall over their edges. Sector Z
+        // fights the same boss in the same room in Mode 1 (BG_1_3D); its
+        // 4bpp BG2 painting reads the same way.
         std::optional<DrawPacket> nucleus_floor;
-        if(in.tunnel_corridor && snapshot->background_nucleus && snapshot->ppu->background_mode==2) {
+        if(in.tunnel_corridor && snapshot->background_nucleus) {
             const auto& room=*snapshot->background_nucleus;
             const float offset=float(int16_t(uint16_t(room.centre_z-snapshot->camera.z)));
             try {

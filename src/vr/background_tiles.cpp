@@ -574,7 +574,7 @@ std::optional<NucleusSurfaces> nucleus_surfaces(const simulation::SnesPpuState& 
     if(brightness>15) throw std::invalid_argument("Invalid nucleus room brightness");
     if(!(radius>0) || !(top<bottom) || !std::isfinite(eye_y) || !std::isfinite(camera_offset))
         throw std::invalid_argument("Invalid nucleus room dimensions");
-    if(!(source.main_screen&2) || source.background_mode!=2) return {};
+    if(!(source.main_screen&2) || (source.background_mode!=1 && source.background_mode!=2)) return {}; // Sector Z: Mode 1
     // The entry (BG_1_3DA) twists the camera through heights outside the
     // room; the eye only places the painting's bands, so keep it inside.
     eye_y=std::clamp(eye_y,top+1.F,bottom-1.F);

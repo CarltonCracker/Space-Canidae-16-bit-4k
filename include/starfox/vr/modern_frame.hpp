@@ -123,6 +123,9 @@ public:
     // with the ground (16ths of a source column, mod 4096 | 1<<17); zero
     // with STARFOX_MODERN_FIXED_SKY=0 (the cartridge's own screen art).
     uint32_t sky_turn{};
+    // Orbital planets below the limb (the Venom airspace): their cloud field
+    // streams past as a ground plane, like a Mode 7 floor. Bits 18-31 of
+    // both values above carry its phase (one noise period per 16384).
     // Venom's surfaces: a haze in the colour of their cloud band that is
     // full where the cartridge's objects appear (about 3,000 source units
     // ahead), hiding the pop-in. Colour in the target encoding, faded with
