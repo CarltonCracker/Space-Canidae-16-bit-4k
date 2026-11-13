@@ -58,6 +58,7 @@
 #include <functional>
 #include <set>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -143,6 +144,20 @@ Difference compare(const std::vector<unsigned char>& a,const std::vector<unsigne
     d.mean=pixels?sum/double(pixels):0;d.over_8=pixels?100.*double(over)/double(pixels):0;
     return d;
 }
+}
+// STARFOX_VR_STEER=x,y[,from]: hold the steering stick from tick `from`
+// (default 0), to see how the scene and its backgrounds follow a turn.
+static starfox::vr::VrControls steer_controls(unsigned tick) {
+    static const auto steer=[] {
+        std::array<float,3> value{0,0,-1};
+        if(const char* text=std::getenv("STARFOX_VR_STEER")) {
+            value[2]=0;std::sscanf(text,"%f,%f,%f",&value[0],&value[1],&value[2]);
+        }
+        return value;
+    }();
+    starfox::vr::VrControls controls;
+    if(steer[2]>=0 && float(tick)>=steer[2]) controls.steer={steer[0],steer[1]};
+    return controls;
 }
 int main(int argc,char** argv) try {
     if(argc<6) {
@@ -386,7 +401,7 @@ int main(int argc,char** argv) try {
                 });
             };
             for(unsigned tick=0;tick<=ticks;++tick) {
-                driver.advance(XrTime(tick)*50'000'000,{},true);
+                driver.advance(XrTime(tick)*50'000'000,steer_controls(tick),true);
                 const auto previous=history.previous(),current=history.current();
                 require(previous && current && current->ppu,"Scene history incomplete");
                 if(tick!=ticks) continue;
@@ -464,10 +479,13 @@ int main(int argc,char** argv) try {
                         std::cout<<"scheduled-defeat tick="<<tick<<" objects="<<killed<<'\n';
                     }
                 }
-                driver.advance(XrTime(tick)*50'000'000,{},true);
+                driver.advance(XrTime(tick)*50'000'000,steer_controls(tick),true);
                 const auto previous=history.previous(),current=history.current();
                 require(previous && current && current->ppu,"Scene history incomplete");
                 const bool last=tick==ticks;
+                if(std::getenv("STARFOX_VR_SCROLL") && tick+std::stoul(std::getenv("STARFOX_VR_SCROLL"))>=ticks)
+                    std::cout<<"scroll tick="<<tick<<" bg2="<<current->ppu->bg2_scroll_x<<','<<current->ppu->bg2_scroll_y
+                        <<" camera yaw="<<current->camera.yaw<<" pitch="<<current->camera.pitch<<" roll="<<current->camera.roll<<" hofs_en="<<current->ppu->bg2_horizontal_offsets_enabled<<" hofs112="<<current->ppu->bg2_horizontal_offsets[112]<<" vofs_en="<<current->ppu->bg2_vertical_offsets_enabled<<" cam_x="<<current->camera.x<<" cam_y="<<current->camera.y<<" cam_z="<<current->camera.z<<'\n';
                 // STARFOX_VR_ALPHA: the last tick drawn between source ticks, as a
                 // headset frame is (default 1, the tick itself).
                 const double alpha=last && std::getenv("STARFOX_VR_ALPHA")?std::stod(std::getenv("STARFOX_VR_ALPHA")):1.;

@@ -901,6 +901,8 @@ float4 landscape_texture_sample(Fragment input) {
     if((input.texture.w&2U)!=0) colour.rgb=dither_linear(colour.rgb);
     return colour.a<.5?0:float4(colour.rgb,1);
 }
+// The atlas row the last tile_background_sample read (per invocation).
+static int background_atlas_row;
 float4 tile_background_sample(Fragment input) {
     uint start=input.texture.x;
     if((texels[start+7]&32768U)!=0 && (texels[start+7]&4096U)!=0) return landscape_texture_sample(input);
@@ -997,6 +999,7 @@ float4 tile_background_sample(Fragment input) {
         return tile_colour(start,input.border_index,input.texture.w);
     }
     uint2 tile_position=uint2(source)&uint2(((screen_size&1)!=0?64:32)*edge-1,((screen_size&2)!=0?64:32)*edge-1);
+    background_atlas_row=int(tile_position.y);
     if((texels[start+15]&0x8000000U)!=0 && tile_position.x>=336 && tile_position.x<392
         && tile_position.y>=320 && tile_position.y<384) tile_position.x&=127U;
     if((texels[start+15]&0x1000000U)!=0 && (original_x<0 || original_x>=512)
@@ -1110,12 +1113,97 @@ float orbital_noise_tiled(float3 p,int period) {
     return lerp(lerp(lerp(a.x,a.y,f.x),lerp(a.z,a.w,f.x),f.y),
         lerp(lerp(b.x,b.y,f.x),lerp(b.z,b.w,f.x),f.y),f.z);
 }
+// The airspace planet's surface below its limb: the view direction meets
+// a ball, whose cloud field scrolls like a Mode 7 floor in the source's
+// own palette range (low..high). Shared by the headset sphere and the
+// flat view's BG2 layer.
+float3 orbital_surface(float3 direction,float3 low,float3 high) {
+    // A ball seen from orbit, bent to fit the authored limb (an HDMA-style
+    // per-line remap rather than strict optics): depression 0..90 degrees is
+    // squeezed into .36..90, just inside the ball's own limb at .3 (eye at
+    // altitude 1, cos .3 = R/(R+1)). Surface features crowd and shrink
+    // towards the horizon all the way round, like a planet's curve, yet stop
+    // short of the tangent, where the surface would stand still.
+    // The surface map is azimuthal equidistant about the nadir: arc length
+    // along the ball, in the direction of the view's heading.
+    const float limb=.3,radius=cos(limb)/(1-cos(limb));
+    float down=asin(saturate(-direction.y));
+    const float edge=limb+.06;
+    float bent=edge+down*(1-edge/1.5707963);
+    float beta=1.5707963-bent; // the ray's angle from the nadir
+    float arc=radius*(asin(min((radius+1)*sin(beta)/radius,1.))-beta);
+    float2 heading=direction.xz/max(length(direction.xz),.0001);
+    // The surface scrolls beneath like a Mode 7 floor (camera.effects.z bits
+    // 18-31, ModernFrame): fast below, slowing into the limb. Periodic along
+    // the flow (96 cells, each octave a whole multiple), so the phase wraps
+    // without a jump. Ahead is -Z: features rise from the limb to the eye.
+    float flow=float(camera.effects.z>>18)/16384.;
+    float2 map=heading*arc*8;
+    float3 q=float3(map.x,0,map.y-flow*96.);
+    // Octaves finer than a pixel (by area, so the limb's vertical squeeze
+    // alone doesn't erase them) fade to their mean: the limb settles into the
+    // palette's middle band, a thin haze, instead of crawling.
+    float2 dx=ddx(map),dy=ddy(map);
+    float footprint=sqrt(abs(dx.x*dy.y-dx.y*dy.x));
+    q+=float3(orbital_noise_tiled(q*.25+11,24),0,orbital_noise_tiled(q*.25+37,24))*.8
+        *(1-smoothstep(.35,.9,footprint*.25));
+    float clouds=lerp(orbital_noise_tiled(q,96),.5,smoothstep(.35,.9,footprint))*.5
+        +lerp(orbital_noise_tiled(q*2+7.3,192),.5,smoothstep(.35,.9,footprint*2))*.25
+        +lerp(orbital_noise_tiled(q*4-4.1,384),.5,smoothstep(.35,.9,footprint*4))*.15
+        +lerp(orbital_noise_tiled(q*8+19.7,768),.5,smoothstep(.35,.9,footprint*8))*.1;
+    // Palette steps retain the source's crisp colour boundaries. The former
+    // low-frequency continuous gradient looked like a blurred enlargement.
+    float band_coordinate=saturate((clouds-.25)*2)*7;
+    // Hard palette thresholds crawl across pixels when either eye moves.
+    // Antialias only each boundary over its screen-space pixel footprint;
+    // interiors retain the crisp palette steps instead of a global blur.
+    float band_width=clamp(fwidth(band_coordinate),.0001,1.);
+    float bands=(floor(band_coordinate)+smoothstep(.5-band_width*.5,
+        .5+band_width*.5,frac(band_coordinate)))/7;
+    return lerp(low,high,bands);
+}
+// Flat views draw the airspace planet as its native BG2 layer
+// (background_tiles flat_orbital_surface, control 7 bit 16): rows below the
+// limb (atlas row `horizon`) become the scrolling surface, rows below the
+// native screen continuing it. The source's 16 rows/degree are compressed
+// into a steeper floor, like a Mode 7 perspective table, so the flow reads
+// on a flat screen; the ball's curve and the layer's roll still apply.
+float4 flat_orbital_surface(Fragment input,float4 authored,float y) {
+    uint start=input.texture.x;
+    uint base=start+272+16384+(texels[start+10]!=0?448:0)+((texels[start+7]&1024U)!=0?5:0);
+    float horizon=asfloat(texels[base]);
+    float3 low=1,high=0;
+    [unroll] for(uint i=0;i<8;++i) {
+        uint index=(texels[base+2+i/4]>>((i%4)*8))&255;
+        if(index==0) continue;
+        float3 colour=tile_colour(start,index,input.texture.w).rgb;
+        low=min(low,colour);high=max(high,colour);
+    }
+    if(any(low>high)) return authored;
+    Fragment probe=input;probe.uv.y=clamp(y,0.,223.99);
+    tile_background_sample(probe);
+    float row=float(background_atlas_row)+frac(probe.uv.y);
+    float below=fmod(row-horizon+512.,512.);
+    float rows=below+max(y-223.99,0.);
+    // 48 rows per radian below the limb, easing towards straight down (and
+    // +-90 degrees sideways) however far a widescreen, rolled or diving view
+    // reaches past the native screen: no row where the surface stops.
+    float down=1.5707963*(1-exp(-rows/(48.*1.5707963)));
+    float heading=atan((input.uv.x-128.)/192.);
+    float3 direction=float3(sin(heading)*cos(down),-sin(down),-cos(heading)*cos(down));
+    float3 surface=orbital_surface(direction,low,high);
+    if(below>=128.) return authored; // above the limb: sky
+    // The limb's glow line stays authored; the surface takes over beneath.
+    float blend=smoothstep(3.,8.,rows);
+    return float4(lerp(authored.rgb,surface,max(blend,1-authored.a)),1);
+}
 float4 tile_background(Fragment input) {
     uint flags=texels[input.texture.x+15];
     // Overscanned layers (BackgroundTileOptions::overscan): above the 224
     // source rows repeat the first row (open space); below, reflect back and
     // forth through the last 12 rows (the airspace planet's surface sits just
     // below its limb) so the surface keeps its texture.
+    float orbital_row_y=input.uv.y; // before the overscan reflection below
     if((texels[input.texture.x+7]&8192U)!=0) {
         if(input.uv.y<0) input.uv.y=0;
         else if(input.uv.y>=224) {float t=fmod(input.uv.y-224.,24.);input.uv.y=223.99-(t<12.?t:24.-t);}
@@ -1134,6 +1222,7 @@ float4 tile_background(Fragment input) {
             sample.uv=base+1.5;float4 d=tile_background_sample(sample);
             colour=bilinear_resolve(a,b,c,d,position-base,(input.texture.w&2U)==0);
         } else colour=tile_background_sample(input);
+        if((texels[input.texture.x+7]&65536U)!=0) colour=flat_orbital_surface(input,colour,orbital_row_y);
         if(colour.a==0) discard;
         return colour;
     }
@@ -1148,8 +1237,24 @@ float4 tile_background(Fragment input) {
     // Only a few rows below the limb are useful; the hemisphere is continued
     // independently instead of stretching those rows towards the nadir.
     sample.uv=float2(128+atan2(direction.x,-direction.z)*512,
-        max(0.,horizon-latitude*512));
-    float blend=smoothstep(0.,min(.045,depth/1024.),-latitude);
+        horizon-latitude*512);
+    // Headset star parallax (ModernFrame): above the limb the stars turn back
+    // part of the sky's sideways turn, so they lag the planet's surface.
+    if((camera.effects.z&0x30000U)==0 && latitude>0)
+        sample.uv.x+=float(int(camera.effects.z<<16)>>16)/65536.*6.28318530718*512;
+    // The atlas's stars end some way above the limb (the airspace's art is
+    // only a band of sky). Mirror that band, 48..192 rows above the limb,
+    // back and forth up to the zenith, so the starfield never stops.
+    {
+        float above=horizon-48.-sample.uv.y;
+        if(above>0) {
+            float t=fmod(above,288.);
+            sample.uv.y=horizon-48.-(t<144.?t:288.-t);
+        }
+    }
+    // Only the authored limb (its glow line) stays; the moving surface takes
+    // over right beneath it (its still rows read as a frozen band).
+    float blend=smoothstep(min(.008,depth/2048.),min(.02,depth/1024.),-latitude);
     float4 authored=blend<1?tile_background_sample(sample):float4(0,0,0,1);
     if(blend==0) {
         if(authored.a==0) discard;
@@ -1159,42 +1264,7 @@ float4 tile_background(Fragment input) {
     // then continue its colours as a detailed world-locked cloud field, not a
     // stretched cap or rows of repeated atlas tiles. Sample interior colours
     // only: neither the bright limb nor a unique sky planet is repeated.
-    float3 low=input.orbital_low,high=input.orbital_high;
-    // Three-dimensional noise avoids the vertical streaks caused by flattening
-    // the sphere onto X/Z near the horizon, and has no longitude/pole seam.
-    // Mild three-dimensional domain variation breaks up the regular noise
-    // cells without introducing a spherical UV seam or a pinched centre.
-    float3 p=direction*32;
-    p+=float3(orbital_noise(direction*3+11),orbital_noise(direction*3+23),
-        orbital_noise(direction*3+37))*.8;
-    float clouds=orbital_noise(p)*.5+orbital_noise(p*2.13+7.3)*.25
-        +orbital_noise(p*4.37-4.1)*.15+orbital_noise(p*8.71+19.7)*.1;
-    // Below the limb the same field lies on a ground plane and streams
-    // towards the eye (camera.effects.z bits 18-31, ModernFrame): fast
-    // beneath, slowing to nothing at the horizon, like a Mode 7 floor.
-    // Periodic along the flow (32 cells, each octave a whole multiple), so
-    // the phase wraps without a jump. The static sphere field keeps the limb,
-    // where a plane's texture would shimmer.
-    float flow=float(camera.effects.z>>18)/16384.;
-    float plane=smoothstep(.04,.22,-direction.y);
-    if(plane>0) {
-        float2 ground=direction.xz/max(-direction.y,.02)*3.;
-        float3 q=float3(ground.x,0,ground.y-flow*32.); // ahead is -Z: features come towards the eye
-        q+=float3(orbital_noise_tiled(q*.25+11,8),0,orbital_noise_tiled(q*.25+37,8))*.8;
-        float flowing=orbital_noise_tiled(q,32)*.5+orbital_noise_tiled(q*2+7.3,64)*.25
-            +orbital_noise_tiled(q*4-4.1,128)*.15+orbital_noise_tiled(q*8+19.7,256)*.1;
-        clouds=lerp(clouds,flowing,plane);
-    }
-    // Palette steps retain the source's crisp colour boundaries. The former
-    // low-frequency continuous gradient looked like a blurred enlargement.
-    float band_coordinate=saturate((clouds-.25)*2)*7;
-    // Hard palette thresholds crawl across pixels when either eye moves.
-    // Antialias only each boundary over its screen-space pixel footprint;
-    // interiors retain the crisp palette steps instead of a global blur.
-    float band_width=clamp(fwidth(band_coordinate),.0001,1.);
-    float bands=(floor(band_coordinate)+smoothstep(.5-band_width*.5,
-        .5+band_width*.5,frac(band_coordinate)))/7;
-    float3 continuation=lerp(low,high,bands);
+    float3 continuation=orbital_surface(direction,input.orbital_low,input.orbital_high);
     return float4(lerp(authored.rgb,continuation,max(blend,1-authored.a)),1);
 }
 // Sprites share one palette/VRAM payload. Vertex texture.y packs OBSEL and

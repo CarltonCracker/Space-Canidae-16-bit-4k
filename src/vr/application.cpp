@@ -31,6 +31,8 @@
 #include "starfox/assets/runtime_bundle.hpp"
 #include "starfox/assets/embedded.hpp"
 #include <fstream>
+#include <sstream>
+#include <string>
 #include "starfox/vr/background_tiles.hpp"
 #include "starfox/vr/decal_surface.hpp"
 #include "starfox/vr/modern_frame.hpp"
@@ -729,10 +731,23 @@ int starfox::vr::run_application(int argc,char** argv,const ApplicationHost& hos
     std::optional<unsigned> startup_revision;
     auto last_profile=std::chrono::steady_clock::now();
     FrameWait frame_wait;
+    std::optional<std::chrono::steady_clock::time_point> exit_requested_at;
     while((!host.frame_limit || submitted<host.frame_limit)
           && (host.time_limit.count()==0 || std::chrono::steady_clock::now()-started<host.time_limit)
           && !session.exit_requested()) {
         if(host.stop_requested && host.stop_requested()) {cancelled=true;break;}
+        if(startup.exit_requested && !renderer.frame_pending()) {
+            // EXIT GAME: end the OpenXR session through the runtime
+            // (STOPPING -> xrEndSession -> EXITING) and leave once it reports
+            // exit; the bounded wait covers a runtime that never answers.
+            const auto now=std::chrono::steady_clock::now();
+            if(!exit_requested_at) {
+                if(!session.request_exit()) std::cerr<<session.status()<<'\n';
+                exit_requested_at=now;
+            } else if(session.exit_requested() || now-*exit_requested_at>std::chrono::seconds(2)) {
+                cancelled=true;break;
+            }
+        }
         const auto result=renderer.step_async([&](unsigned eye,uint32_t image,const auto& camera,XrTime time) {
             if(!input_time || time!=*input_time) {
                 // Both eyes share the preview; restore the real session only
@@ -770,8 +785,12 @@ int starfox::vr::run_application(int argc,char** argv,const ApplicationHost& hos
                         startup.selected_level=0;++startup.revision;startup_release=true;
                         sprite_revision.reset();uploaded_backgrounds.clear();uploaded_sprites.clear();modern_frame.reset();
                     }
-                    if(focused && !startup.open && !startup_release && controls.menu && controls.select
-                        && (controls.menu_pressed || controls.select_pressed)) {
+                    // Menu+Select opens the headset menu; so does Select alone
+                    // while the game is paused (the cartridge ignores it then).
+                    const bool paused_select=live->game.paused() && controls.select_pressed && !controls.menu;
+                    if(focused && !startup.open && !startup_release
+                        && ((controls.menu && controls.select && (controls.menu_pressed || controls.select_pressed))
+                            || paused_select)) {
                         startup.language=live->game.language();startup.god_mode=live->game.god_mode();
                         startup.default_laser=live->game.default_laser();
                         startup.msu_available=live->game.msu1_available();startup.msu_music=live->game.msu1_music();
@@ -785,8 +804,37 @@ int starfox::vr::run_application(int argc,char** argv,const ApplicationHost& hos
                         startup.open_runtime();startup_release=true;
                     }
                     const bool was_menu=startup.open;
+                    const auto menu_revision=startup.revision;
                     startup.sample(controls,focused);
-                    if(was_menu && !startup.open && !preferences_path.empty()
+                    // Headset menu diagnostics (vr-session.log): what it changed,
+                    // and once a second while open, the input it is reading.
+                    if(startup.open && startup.revision!=menu_revision)
+                        std::cout<<"[vr menu] page="<<int(startup.page)<<" selection="<<startup.selection
+                            <<" runtime="<<startup.runtime<<'\n';
+                    {
+                        // Every change of the menu's input while it is open (the
+                        // stick quantised to whole tenths), and each open/close.
+                        static std::string last_menu_input;static bool last_open=false;
+                        if(startup.open!=last_open) {
+                            std::cout<<"[vr menu] "<<(startup.open?"opened":"closed")<<" runtime="<<startup.runtime
+                                <<" paused="<<live->game.paused()<<'\n';
+                            last_open=startup.open;
+                        }
+                        if(startup.open) {
+                            std::ostringstream line;
+                            line<<"steer="<<std::lround(controls.steer.x*10)<<','<<std::lround(controls.steer.y*10)
+                                <<" fire="<<controls.fire<<" menu="<<controls.menu<<" select="<<controls.select
+                                <<" bomb="<<controls.bomb<<" focused="<<focused<<" selection="<<startup.selection;
+                            if(line.str()!=last_menu_input) {
+                                last_menu_input=line.str();
+                                std::cout<<"[vr menu] input "<<last_menu_input<<'\n';
+                            }
+                        }
+                        if(!startup.open && controls.select_pressed)
+                            std::cout<<"[vr menu] select pressed paused="<<live->game.paused()
+                                <<" menu="<<controls.menu<<" release_wait="<<startup_release<<'\n';
+                    }
+                    if(was_menu && (!startup.open || startup.exit_requested) && !preferences_path.empty()
                         && startup.preferences()!=saved_preferences) try {
                         const auto bytes=startup.preferences();
                         starfox::state::write_atomic(preferences_path,bytes);

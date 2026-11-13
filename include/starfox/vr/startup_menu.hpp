@@ -11,7 +11,7 @@
 namespace starfox::vr {
 class StartupMenu {
 public:
-    enum class Page { main,options,cheats,three_d,two_d };
+    enum class Page { main,options,cheats,three_d,two_d,exit_confirmation };
     Page page{Page::main};
     bool open{true},god_mode{},extended{},alternate_available{},runtime{};
     bool infinite_bombs{},infinite_boost{},infinite_lives{},swap_face_buttons{};
@@ -28,6 +28,7 @@ public:
     // MODERN's dynamic lighting on the headset: the engine glow on the ground.
     bool dynamic_lighting{};
     bool preview{}; // Session-only: never resume a game into preview automatically.
+    bool exit_requested{}; // EXIT GAME confirmed: the host ends the OpenXR session.
     unsigned model_effect{},world_effect{},model_intensity{100},world_intensity{100};
     unsigned asteroid_models{}; // render::AsteroidModels.
     render::AsteroidModels asteroid_model_mode() const noexcept {
@@ -103,7 +104,9 @@ public:
         dynamic_lighting=bytes[4]>=7 && (bytes[21]&2)!=0;
         return true;
     }
-    unsigned row_count() const noexcept {return page==Page::main?6:page==Page::options?10:page==Page::three_d?(ray_tracing_available?6:5)+(modern_available?2:0):page==Page::two_d?5:7;}
+    // Main page rows: 0..3 settings, 4 RESUME/START GAME, 5 PREVIEW, 6 EXIT GAME.
+    static constexpr unsigned exit_row=6;
+    unsigned row_count() const noexcept {return page==Page::exit_confirmation?2:page==Page::main?7:page==Page::options?10:page==Page::three_d?(ray_tracing_available?6:5)+(modern_available?2:0):page==Page::two_d?5:7;}
     unsigned first_visible_row() const noexcept {return selection<6?0:selection-5;}
     VrControls gameplay_controls(VrControls controls) const noexcept {
         // Native mapping is Y=fire, X=boost, A=bomb, B=brake.
@@ -144,6 +147,10 @@ public:
                 else if(selection==3) {page=Page::options;selection=0;}
                 else if(selection==4) open=false;
                 else if(selection==5) preview=!preview;
+                else if(selection==exit_row) {page=Page::exit_confirmation;selection=0;}
+            } else if(page==Page::exit_confirmation) {
+                if(selection==1) exit_requested=true;
+                else {page=Page::main;selection=exit_row;}
             } else if(page==Page::options) {
                 if(selection==0) {page=Page::cheats;selection=0;}
                 else if(selection==1) crosshair_colour=(crosshair_colour+1)%8;
@@ -189,8 +196,9 @@ public:
             ++revision;
         }
     }
-    std::string title() const {return page==Page::cheats?"CHEATS":page==Page::options?"OPTIONS":page==Page::three_d?"3D OPTIONS":page==Page::two_d?"2D OPTIONS":"STAR FOX ENHANCED";}
+    std::string title() const {return page==Page::exit_confirmation?"EXIT GAME?":page==Page::cheats?"CHEATS":page==Page::options?"OPTIONS":page==Page::three_d?"3D OPTIONS":page==Page::two_d?"2D OPTIONS":"STAR FOX ENHANCED";}
     std::vector<std::string> labels() const {
+        if(page==Page::exit_confirmation) return {"NO / BACK","YES / EXIT GAME"};
         if(page==Page::three_d || page==Page::two_d) {
             const bool models=page==Page::three_d;
             std::vector<std::string> rows{
@@ -224,7 +232,7 @@ public:
         return {std::string("EXPERIENCE: ")+(extended?"STARFOX EX":"ORIGINAL")+(runtime?" (LOCKED)":alternate_available?"":" (ONLY)"),
             std::string("PACE/SPEED: ")+(unlocked_pace?"UNLOCKED 20 HZ":"ORIGINAL"),
             std::string("MSU-1 MUSIC: ")+(msu_available?(msu_music?"ON":"OFF"):"NOT FOUND"),
-            "OPTIONS",runtime?"RESUME":"START GAME",std::string("PREVIEW: ")+(preview?"ON":"OFF")};
+            "OPTIONS",runtime?"RESUME":"START GAME",std::string("PREVIEW: ")+(preview?"ON":"OFF"),"EXIT GAME"};
     }
     std::array<std::u32string_view,2> localized_help() const {
         constexpr std::array<std::array<std::u32string_view,2>,6> help{{

@@ -135,9 +135,18 @@ FrameLayers assemble_frame_layers(const GameSceneSnapshot& scene,const FrameLaye
             // Rolled as geometry: reach past the view so no corner shows the
             // backdrop (the airspace's planet surface below its limb).
             auto horizon_options=space_options;
-            if(in.space_roll_geometry) horizon_options.overscan=512;
+            // The airspace's surface also reaches past a rolled, diving
+            // 32:9 view's corners.
+            if(in.space_roll_geometry) horizon_options.overscan=snapshot->background_orbital_planet?1024:512;
             bg2=background_tile_packet(*snapshot->ppu,BackgroundLayer::bg2,horizon_options,srgb);
             bg2.model=packet.model;
+            // The airspace planet's surface: the headset's scrolling field
+            // below the native limb (STARFOX_MODERN_ORBITAL_FLOW=0: native).
+            static const bool flat_surface=[] {
+                const char* value=std::getenv("STARFOX_MODERN_ORBITAL_FLOW");return !(value && std::string_view(value)=="0");
+            }();
+            if(flat_surface && snapshot->background_orbital_planet)
+                flat_orbital_surface(bg2,*snapshot->ppu,snapshot->background_orbital_thin,snapshot->background_orbital_entry);
         }
         else if(!snapshot->ppu->tunnel_scene && snapshot->background_space_horizon)
             bg2=snapshot->background_orbital_planet

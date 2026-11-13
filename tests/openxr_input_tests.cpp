@@ -180,6 +180,30 @@ XrResult XRAPI_PTR locate(XrSpace,XrSpace,XrTime,XrSpaceLocation* out) {
 
 // The original runtime menu, exactly as the PCVR and Quest loop uses it.
 void original_menu_tests() {
+    {   // EXIT GAME: last main row, confirmed on its own page; NO returns to it.
+        StartupMenu menu;using Page=StartupMenu::Page;
+        VrControls press;press.fire=true;
+        const auto click=[&] {menu.sample({},true);menu.sample(press,true);};
+        menu.open_runtime();
+        require(menu.row_count()==7 && menu.labels().back()=="EXIT GAME");
+        menu.selection=StartupMenu::exit_row;click();
+        require(menu.page==Page::exit_confirmation && menu.selection==0 && menu.title()=="EXIT GAME?" && !menu.exit_requested);
+        click();require(menu.page==Page::main && menu.selection==StartupMenu::exit_row && !menu.exit_requested);
+        click();menu.selection=1;click();require(menu.exit_requested);
+    }
+    {   // Opened mid-flight by the Start+Select chord with the stick deflected:
+        // after a neutral sample the stick moves the selection down to EXIT GAME.
+        StartupMenu menu;
+        VrControls flying;flying.steer={.8F,.6F};
+        menu.open=false;menu.sample(flying,true);
+        VrControls chord=flying;chord.menu=chord.select=true;
+        menu.open_runtime();menu.sample(chord,true);menu.sample(chord,true);
+        require(menu.selection==4);
+        menu.sample({},true);
+        VrControls down;down.steer.y=-1;
+        menu.sample(down,true);require(menu.selection==5);
+        menu.sample({},true);menu.sample(down,true);require(menu.selection==6 && menu.first_visible_row()==1);
+    }
     {
         StartupMenu menu;using Page=StartupMenu::Page;
         VrControls press;press.fire=true;
@@ -229,7 +253,7 @@ void original_menu_tests() {
         menu.sample({},true);menu.sample(up,true);require(menu.selection==8);
         for(unsigned language=0;language<6;++language) {
             menu.language=language;
-            for(const auto page:{Page::main,Page::options,Page::cheats,Page::three_d,Page::two_d}) {
+            for(const auto page:{Page::main,Page::options,Page::cheats,Page::three_d,Page::two_d,Page::exit_confirmation}) {
                 menu.page=page;
                 require(menu.localized_labels().size()==menu.row_count());
                 for(const auto& label:menu.localized_labels()) require(!label.empty());

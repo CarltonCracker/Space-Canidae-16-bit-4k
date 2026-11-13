@@ -124,7 +124,7 @@ public:
     // with STARFOX_MODERN_FIXED_SKY=0 (the cartridge's own screen art).
     uint32_t sky_turn{};
     // Orbital planets below the limb (the Venom airspace): their cloud field
-    // streams past as a ground plane, like a Mode 7 floor. Bits 18-31 of
+    // scrolls past over the ball, like a Mode 7 floor. Bits 18-31 of
     // both values above carry its phase (one noise period per 16384).
     // Venom's surfaces: a haze in the colour of their cloud band that is
     // full where the cartridge's objects appear (about 3,000 source units
@@ -156,6 +156,10 @@ private:
     // art columns (continuous across the +-pi wrap).
     std::optional<double> sky_yaw_;
     double sky_columns_{};
+    // The orbital surface's own clock: source ticks of unpaused gameplay
+    // (modulo its period) and the snapshot revision last counted.
+    std::optional<uint64_t> flow_revision_;
+    uint32_t flow_ticks_{};
     std::optional<float> level_horizon_;
     std::map<int,unsigned> horizon_votes_;
     uint16_t level_background_{};
