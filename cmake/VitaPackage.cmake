@@ -8,7 +8,7 @@ function(starfox_add_vita_package runtime_target)
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(STARFOX_VITA_TITLE_ID "SFXE00001" CACHE STRING "Nine-character PS Vita title id")
-    set(STARFOX_VITA_APP_VERSION "00.90" CACHE STRING "Two-component PS Vita application version")
+    set(STARFOX_VITA_APP_VERSION "00.91" CACHE STRING "Two-component PS Vita application version")
     if(NOT STARFOX_VITA_TITLE_ID MATCHES "^[A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]$"
         OR NOT STARFOX_VITA_APP_VERSION MATCHES "^[0-9][0-9]\\.[0-9][0-9]$")
         message(FATAL_ERROR "Invalid Vita title id or version")
@@ -32,9 +32,10 @@ function(starfox_add_vita_package runtime_target)
     set(bg "${art}/sce_sys/livearea/contents/bg.png")
     set(startup "${art}/sce_sys/livearea/contents/startup.png")
     set(template "${root}/platform/vita/sce_sys/livearea/contents/template.xml")
+    file(GLOB_RECURSE icon_inputs CONFIGURE_DEPENDS "${root}/assets/icons/vita/*.png")
     add_custom_command(OUTPUT "${icon}" "${bg}" "${startup}"
         COMMAND "${Python3_EXECUTABLE}" "${root}/tools/generate_vita_assets.py" --output "${art}"
-        DEPENDS "${root}/tools/generate_vita_assets.py" "${root}/tools/generate_uwp_assets.py"
+        DEPENDS "${root}/tools/generate_vita_assets.py" ${icon_inputs}
         VERBATIM)
     set(sfo "${CMAKE_CURRENT_BINARY_DIR}/StarFoxEnhanced_param.sfo")
     separate_arguments(extra_sfo_flags NATIVE_COMMAND "${VITA_MKSFOEX_FLAGS}")

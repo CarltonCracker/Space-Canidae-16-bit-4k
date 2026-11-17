@@ -4,6 +4,7 @@ plugins {
 
 android {
     namespace 'com.starfox.enhanced'
+    sourceSets.main.res.srcDir '../../../assets/icons/android'
     compileSdk 35
     ndkVersion '28.2.13676358'
 
@@ -11,8 +12,8 @@ android {
         applicationId 'com.starfox.enhanced'
         minSdk 26
         targetSdk 35
-        versionCode 20
-        versionName '0.0.8.8.2'
+        versionCode 21
+        versionName '0.0.8.8.3'
 
         externalNativeBuild {
             cmake {

@@ -59,6 +59,9 @@ int main(int argc,char** argv) {
         require(!parse_update_version(text),"invalid version accepted");
     const auto newer=parse_update_release(fixture(),"0.0.8.8","windows-x64.zip");
     require(newer.newer && newer.version=="0.0.8.9" && newer.bytes==1234 && newer.sha256==std::string(64,'a'),"update asset selection");
+    const auto addon_only=replace(fixture(),"0.0.8.9-windows-x64.zip","0.0.8.9-dlss-windows-x64.zip");
+    require(parse_update_release(addon_only,"0.0.8.8","windows-x64.zip").asset_url.empty(),
+        "DLSS add-on must never be selected as the game update");
     require(!parse_update_release(fixture("0.0.8.8"),"0.0.8.8","windows-x64.zip").newer,"same version offered");
     require(!parse_update_release(fixture("0.0.8.7"),"0.0.8.8","windows-x64.zip").newer,"downgrade offered");
     require(parse_update_release(fixture("0.0.8.10"),"0.0.8.9","windows-x64.zip").newer,"four-part versions misordered");
@@ -72,6 +75,12 @@ int main(int argc,char** argv) {
             "0.0.8.8.1 client cannot select the 0.0.8.8.2 platform update");
         require(!parse_update_release(fixture("0.0.8.8.2",suffix),"0.0.8.8.2",suffix).newer,
             "0.0.8.8.2 offers itself as an update");
+        const auto next=parse_update_release(fixture("0.0.8.8.3",suffix),"0.0.8.8.2",suffix);
+        require(next.newer && next.version=="0.0.8.8.3"
+                && next.asset_url.ends_with(std::string{"StarFoxEnhanced-0.0.8.8.3-"}+suffix),
+            "0.0.8.8.2 client cannot select the 0.0.8.8.3 platform update");
+        require(!parse_update_release(fixture("0.0.8.8.3",suffix),"0.0.8.8.3",suffix).newer,
+            "0.0.8.8.3 offers itself as an update");
     }
     require(!parse_update_release(fixture("0.0.8.8"),"0.0.8.8.1","windows-x64.zip").newer,"hotfix downgrade offered");
     require(parse_update_release(fixture("0.0.8.9"),"0.0.8.8.1","windows-x64.zip").newer,"hotfix blocks next release");
