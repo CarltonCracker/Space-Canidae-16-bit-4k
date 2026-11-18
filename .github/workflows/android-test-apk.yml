@@ -1,0 +1,42 @@
+name: android-test-apk
+
+# Fork-only: a debug-signed Android arm64 APK for testing, built from any
+# branch on demand. portable-builds' Android job needs the upstream release
+# keystore (and pins its certificate), which this fork does not have.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-arm64-debug:
+    name: Android arm64 test APK (debug-signed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK and NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platform-tools platforms;android-35 build-tools;35.0.0
+            ndk;28.2.13676358
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Build debug APK
+        shell: bash
+        run: |
+          chmod +x tools/build_android.sh platform/android/gradlew
+          tools/build_android.sh "$GITHUB_WORKSPACE" debug
+          apk=dist/StarFoxEnhanced-android-arm64.apk
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libmain.so'
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libSDL3.so'
+          cp "$apk" "StarFoxEnhanced-android-arm64-test-${GITHUB_SHA::7}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarFoxEnhanced-android-arm64-test
+          path: StarFoxEnhanced-android-arm64-test-*.apk
+          if-no-files-found: error
