@@ -106,6 +106,8 @@ extern "C" void StarfoxPS5_HideSplashScreen(void);
 #include "starfox/render/sprite_renderer.hpp"
 #include "starfox/render/colour_math.hpp"
 #include "starfox/render/asteroid_models.hpp"
+#include "starfox/render/projectile_models.hpp"
+#include "starfox/render/explosion_models.hpp"
 #include "starfox/render/model_smoothing.hpp"
 #include "starfox/simulation/game_simulation.hpp"
 #include "starfox/simulation/math.hpp"
@@ -8305,6 +8307,8 @@ int main(int argc, char** argv) {
                 window.fixed_window_size()[0],window.fixed_window_size()[1],
                 game.hipoly_arwings(),
                 game.dynamic_lighting(),
+                game.projectile_models(),
+                game.explosion_models(),
             };
         };
         {
@@ -8520,6 +8524,8 @@ int main(int argc, char** argv) {
             game.set_asteroid_models(saved_pregame.asteroid_models);
             game.set_hipoly_arwings(saved_pregame.hipoly_arwings);
             game.set_dynamic_lighting(saved_pregame.dynamic_lighting);
+            game.set_projectile_models(saved_pregame.projectile_models);
+            game.set_explosion_models(saved_pregame.explosion_models);
             game.set_language(saved_pregame.language);
             if (const auto* language = std::getenv("STARFOX_TEST_LANGUAGE"))
                 game.set_language(static_cast<std::uint8_t>(std::atoi(language)));
@@ -8572,6 +8578,12 @@ int main(int argc, char** argv) {
                 game.set_hipoly_arwings(std::atoi(hipoly) != 0);
             if (const auto* lighting = std::getenv("STARFOX_TEST_DYNAMIC_LIGHTING"))
                 game.set_dynamic_lighting(std::atoi(lighting) != 0);
+            if (const auto* projectiles = std::getenv("STARFOX_TEST_PROJECTILE_MODELS"))
+                game.set_projectile_models(std::atoi(projectiles) != 0);
+            if (const auto* explosions = std::getenv("STARFOX_TEST_EXPLOSION_MODELS"))
+                game.set_explosion_models(std::atoi(explosions) != 0);
+            if (const auto* laser = std::getenv("STARFOX_TEST_DEFAULT_LASER")) // 0 SINGLE, 1 DUAL, 2 BEAM.
+                game.set_default_laser(static_cast<std::uint8_t>(std::atoi(laser)));
             if (const auto* separated = std::getenv("STARFOX_TEST_SEPARATED_MODELS"))
                 game.set_smooth_polys(std::atoi(separated) != 0);
             if (saved_pregame.effect == static_cast<std::uint8_t>(starfox::render::Effect::bloom)
@@ -11773,7 +11785,7 @@ int main(int argc, char** argv) {
                             : game.pregame_page() == starfox::simulation::PregamePage::two_d
                                 ? "2D OPTIONS" : game.pregame_page()==starfox::simulation::PregamePage::global
                                     ? "GLOBAL ENHANCEMENTS" : "3D OPTIONS", 27, 10U);
-                        std::array<std::int32_t, 82> row_y;
+                        std::array<std::int32_t, 84> row_y;
                         row_y.fill(-1);
                         const auto selected_row=std::size_t(std::find(visual_order.begin(),visual_order.end(),game.pregame_selection())-visual_order.begin());
                         const auto first_visible=!main_page && visual_order.size()>14
@@ -11860,6 +11872,10 @@ int main(int argc, char** argv) {
                         draw_graphics_row("3D ASTEROIDS", starfox::render::asteroid_model_names[
                             static_cast<std::size_t>(game.asteroid_models())], row_y[79],
                             game.pregame_selection()==79U);
+                        draw_graphics_row("3D PROJECTILES", on_off(game.projectile_models()), row_y[82],
+                            game.pregame_selection()==82U);
+                        draw_graphics_row("3D EXPLOSIONS", on_off(game.explosion_models()), row_y[83],
+                            game.pregame_selection()==83U);
                         draw_graphics_row("HIGH POLY ARWINGS",
                             !game.modern_renderer() ? std::string_view{"MODERN ONLY"}
                                 : on_off(game.hipoly_arwings()), row_y[80],
@@ -14779,6 +14795,12 @@ int main(int argc, char** argv) {
                 if (const auto* model = starfox::render::substitute_asteroid_model(
                         found->second, pose, game.asteroid_models())) {
                     drawn_shape = model;
+                } else if (const auto* projectile = starfox::render::substitute_projectile_model(
+                        found->second, pose, game.projectile_models())) {
+                    drawn_shape = projectile;
+                } else if (const auto* explosion = starfox::render::substitute_explosion_model(
+                        found->second, pose, game.explosion_models())) {
+                    drawn_shape = explosion;
                 }
                 auto* surfaces = &target == &superfx_frame && surface_effects
                     ? &superfx_surfaces : nullptr;

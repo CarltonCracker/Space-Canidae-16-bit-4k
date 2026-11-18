@@ -95,7 +95,11 @@ FrameLayers assemble_frame_layers(const GameSceneSnapshot& scene,const FrameLaye
         // An enhancement: on any failure keep the cartridge's own layer
         // rather than failing (and dropping out of) the whole frame.
         try {
-            corridor=tunnel_corridor_packet(*snapshot->ppu,snapshot->display_brightness,srgb,half_width);
+            // A corridor open on one side (Venom 2's colony) has its own build.
+            if(bounds && (bounds->walls&15U)!=15U)
+                corridor=colony_corridor_packet(*snapshot->ppu,snapshot->display_brightness,srgb,
+                    float(bounds->top),float(bounds->bottom),snapshot->camera.z);
+            else corridor=tunnel_corridor_packet(*snapshot->ppu,snapshot->display_brightness,srgb,half_width);
             if(corridor->geometry.vertex_view().empty()) corridor.reset();
         } catch(const std::exception& error) {
             static bool reported=false;
@@ -174,9 +178,24 @@ FrameLayers assemble_frame_layers(const GameSceneSnapshot& scene,const FrameLaye
             if(snapshot->landscape_grid_height<0)
                 place_landscape_ground(bg2,std::clamp(float(snapshot->landscape_grid_height)/256.F,-8.F,-.001F),true);
         }
-        else if(snapshot->background_water_surround)
-            bg2=water_surface_packet(*snapshot->ppu,background_options,
-                std::clamp(std::abs(float(snapshot->camera.y-snapshot->shadow_height))/256.F,.01F,8.F),srgb);
+        else if(snapshot->background_water_surround) {
+            // Titania's bridge as real geometry (MODERN), else the painting
+            // on a floor and a ceiling plane.
+            if(in.tunnel_corridor && snapshot->background_bridge) try {
+                const auto& bridge=*snapshot->background_bridge;
+                bg2=water_bridge_packet(*snapshot->ppu,snapshot->display_brightness,srgb,
+                    float(bridge.top),float(bridge.bottom),float(bridge.view),
+                    snapshot->camera.x,snapshot->camera.y,snapshot->camera.z,
+                    float(snapshot->source_vanishing_point[1])+16.F-.5F);
+            } catch(const std::exception& error) {
+                static bool reported=false;
+                if(!reported) {std::fprintf(stderr,"modern: 3D bridge skipped: %s\n",error.what());reported=true;}
+                bg2=DrawPacket{};
+            }
+            if(bg2.geometry.vertex_view().empty())
+                bg2=water_surface_packet(*snapshot->ppu,background_options,
+                    std::clamp(std::abs(float(snapshot->camera.y-snapshot->shadow_height))/256.F,.01F,8.F),srgb);
+        }
         else bg2.model=packet.model;
         if(corridor) bg2=std::move(*corridor);
         // Space Armada's boss room as a room around the reactor: its ceiling
@@ -245,10 +264,15 @@ FrameLayers assemble_frame_layers(const GameSceneSnapshot& scene,const FrameLaye
             background_options.scroll_override.reset();
             auto plain_options=background_options;plain_options.scroll_fraction=in.bg3_scroll_fraction;
             auto bg3=background_tile_packet(*snapshot->ppu,BackgroundLayer::bg3,plain_options,srgb);
-            if(snapshot->background_water_surround)
+            // Venom 2's colony looks out over the city (BG3) through its open
+            // side: like the bridge's surround, it belongs at infinity.
+            const bool colony_view=bg2_index<next_backgrounds.size() && is_colony_corridor(next_backgrounds[bg2_index]);
+            if(snapshot->background_water_surround || colony_view)
                 bg3=water_surround_packet(*snapshot->ppu,background_options,srgb);
             else bg3.model=packet.model;
-            if(snapshot->background_water_surround)
+            if(colony_view)
+                next_backgrounds.insert(next_backgrounds.begin()+std::ptrdiff_t(bg2_index),std::move(bg3));
+            else if(snapshot->background_water_surround)
                 next_backgrounds.insert(next_backgrounds.end()-1,std::move(bg3));
             else if(in.bg3_behind_bg2 && !snapshot->ppu->bg3_high_priority && bg2_index<next_backgrounds.size())
                 // SNES Mode 1: BG3 shows only through BG2's transparent pixels
