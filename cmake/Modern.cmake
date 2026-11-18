@@ -1,9 +1,10 @@
 # MODERN renderer: the shared VR scene (starfox_scene) drawn through SDL_GPU
 # for flat-screen targets. Needs SDL3::SDL3 from the runtime build. Desktop
 # Windows/Linux, Xbox UWP (D3D12 through the patched SDL fork), Android and PS5
-# (all present through SDL_GPU with DXIL or SPIR-V); other targets keep their
-# existing renderers.
-if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID OR STARFOX_PS5)
+# (all present through SDL_GPU with DXIL or SPIR-V), plus macOS and iOS (Metal,
+# with MSL from tools/generate_modern_shaders.py; iOS runs the same starfox_pc
+# app); other targets keep their existing renderers.
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID OR STARFOX_PS5 OR APPLE)
     set(STARFOX_MODERN_DEFAULT ON)
 else()
     set(STARFOX_MODERN_DEFAULT OFF)
